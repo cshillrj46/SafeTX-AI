@@ -1,27 +1,41 @@
 # File: backend/main.py
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+import logging
+from datetime import datetime, timezone
 from enum import Enum
-from fastapi.responses import JSONResponse
+
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from backend.database import TransactionRecord, SessionLocal, init_db, ReclassificationLog
-from backend.webhook import send_webhook
-from backend.email_service import send_email_alert
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from backend.ai_model import predict_risk
+from backend.auth import router as auth_router
+from backend.auth import get_current_user
+from backend.config import ALERT_RECIPIENT_EMAIL, CORS_ORIGINS, HIGH_RISK_AMOUNT_THRESHOLD_ETH
+from backend.database import ReclassificationLog, TransactionRecord, User, get_db, init_db
+from backend.email_service import send_email_alert
+from backend.webhook import send_webhook
 
-from datetime import datetime
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("safetx.main")
 
-app = FastAPI()
+app = FastAPI(title="SafeTX-AI")
 init_db()
 
-# === CORS Setup ===
+# === CORS Setup (origens configuráveis via .env, ver CORS_ORIGINS) ===
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
+
 
 # === Risk Level Enum ===
 class RiskLevel(str, Enum):
@@ -29,31 +43,36 @@ class RiskLevel(str, Enum):
     suspicious = "suspicious"
     high_risk = "high-risk"
 
+
 # === Input Model ===
 class TransactionInput(BaseModel):
     sender: str
     recipient: str
     amount_eth: float
 
+
 # === Analyze Transaction ===
 @app.post("/analyze", response_model=RiskLevel)
-def analyze_transaction(tx: TransactionInput):
-    db = SessionLocal()
-    print("[DEBUG] Analisando transação com regra + IA")
+def analyze_transaction(
+    tx: TransactionInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    logger.debug("Analisando transação com regra + IA (usuário=%s)", current_user.username)
 
     # 1. Regra fixa
-    if tx.amount_eth > 25:
+    if tx.amount_eth > HIGH_RISK_AMOUNT_THRESHOLD_ETH:
         risk = RiskLevel.high_risk
-        print(f"[DEBUG] Valor alto. Classificado como: {risk}")
+        logger.debug("Valor acima do limiar. Classificado como: %s", risk)
     else:
         # 2. Modelo IA
         predicted = predict_risk(tx.sender, tx.recipient, tx.amount_eth)
         predicted = (predicted or "").strip().lower()
-        print(f"[DEBUG] IA previu: {predicted}")
+        logger.debug("IA previu: %s", predicted)
 
         valid_values = {rl.value for rl in RiskLevel}
         if predicted not in valid_values:
-            print("[ERRO] Previsão inválida da IA. Usando 'suspicious'")
+            logger.warning("Previsão inválida/ausente da IA ('%s'). Usando 'suspicious'.", predicted)
             risk = RiskLevel.suspicious
         else:
             risk = RiskLevel(predicted)
@@ -64,22 +83,24 @@ def analyze_transaction(tx: TransactionInput):
         recipient=tx.recipient,
         amount_eth=tx.amount_eth,
         risk=risk,
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(timezone.utc),
     )
     db.add(tx_record)
     db.commit()
 
     # 4. Notificações
-    if risk == RiskLevel.high_risk:
-        send_webhook({
-            "sender": tx.sender,
-            "recipient": tx.recipient,
-            "amount_eth": tx.amount_eth,
-            "risk": risk
-        })
+    if risk == RiskLevel.high_risk and ALERT_RECIPIENT_EMAIL:
+        send_webhook(
+            {
+                "sender": tx.sender,
+                "recipient": tx.recipient,
+                "amount_eth": tx.amount_eth,
+                "risk": risk,
+            }
+        )
 
         send_email_alert(
-            recipient_email="cristianohill35@gmail.com",
+            recipient_email=ALERT_RECIPIENT_EMAIL,
             subject="🚨 SafeTX Alert: High-Risk Transaction Detected",
             content=(
                 f"A high-risk transaction was detected:\n\n"
@@ -87,36 +108,56 @@ def analyze_transaction(tx: TransactionInput):
                 f"Recipient: {tx.recipient}\n"
                 f"Amount (ETH): {tx.amount_eth}\n"
                 f"Risk Level: {risk}"
-            )
+            ),
         )
 
     return risk
 
-# === Get Transaction History ===
+
+# === Get Transaction History (com paginação real) ===
 @app.get("/history")
-def get_history():
-    db = SessionLocal()
-    records = db.query(TransactionRecord).order_by(TransactionRecord.id).all()
-    return JSONResponse(content=[
-        {
-            "id": r.id,
-            "sender": r.sender,
-            "recipient": r.recipient,
-            "amount_eth": r.amount_eth,
-            "risk": r.risk,
-            "timestamp": r.timestamp.strftime("%Y-%m-%d %H:%M:%S") if r.timestamp else "N/A"
-        } for r in records
-    ])
+def get_history(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = db.query(TransactionRecord).order_by(TransactionRecord.id)
+    total = query.count()
+    records = query.offset((page - 1) * limit).limit(limit).all()
+
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "sender": r.sender,
+                "recipient": r.recipient,
+                "amount_eth": r.amount_eth,
+                "risk": r.risk,
+                "timestamp": r.timestamp.strftime("%Y-%m-%d %H:%M:%S") if r.timestamp else "N/A",
+            }
+            for r in records
+        ],
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": (total + limit - 1) // limit if total else 0,
+    }
+
 
 # === Manual Reclassification ===
 class ReclassificationInput(BaseModel):
     new_risk: RiskLevel
     reason: str
-    reclassified_by: str
+
 
 @app.patch("/reclassify/{tx_id}")
-def reclassify_transaction(tx_id: int, payload: ReclassificationInput):
-    db = SessionLocal()
+def reclassify_transaction(
+    tx_id: int,
+    payload: ReclassificationInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     tx = db.query(TransactionRecord).filter(TransactionRecord.id == tx_id).first()
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -126,7 +167,7 @@ def reclassify_transaction(tx_id: int, payload: ReclassificationInput):
         old_risk=tx.risk,
         new_risk=payload.new_risk,
         reason=payload.reason,
-        reclassified_by=payload.reclassified_by
+        reclassified_by=current_user.username,
     )
     db.add(log)
     tx.risk = payload.new_risk
@@ -134,10 +175,13 @@ def reclassify_transaction(tx_id: int, payload: ReclassificationInput):
 
     return {"status": "reclassified", "tx_id": tx.id}
 
+
 # === Get Reclassification Logs ===
 @app.get("/reclassifications")
-def get_reclassifications():
-    db = SessionLocal()
+def get_reclassifications(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     logs = db.query(ReclassificationLog).all()
     return [
         {
@@ -146,6 +190,7 @@ def get_reclassifications():
             "old_risk": r.old_risk,
             "new_risk": r.new_risk,
             "reason": r.reason,
-            "reclassified_by": r.reclassified_by
-        } for r in logs
+            "reclassified_by": r.reclassified_by,
+        }
+        for r in logs
     ]

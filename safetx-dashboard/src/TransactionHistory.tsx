@@ -1,28 +1,21 @@
 // File: src/TransactionHistory.tsx
-// File: src/TransactionHistory.tsx
 import { useEffect, useState } from "react";
-
-interface Transaction {
-  id: number;
-  sender: string;
-  recipient: string;
-  amount_eth: number;
-  risk: string;
-  timestamp: string;
-}
+import { ApiError, getHistory, type Transaction } from "./api";
 
 export default function TransactionHistory() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [totalPages, setTotalPages] = useState(1);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`http://localhost:8000/history?page=${page}&limit=10`)
-      .then((res) => res.json())
-      .then((data: Transaction[]) => {
-        setTransactions(data);
-        setHasMore(data.length === 10);
-      });
+    setError(null);
+    getHistory(page, 10)
+      .then((data) => {
+        setTransactions(data.items);
+        setTotalPages(Math.max(1, data.total_pages));
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load history"));
   }, [page]);
 
   const formatDate = (isoString: string) => {
@@ -33,6 +26,8 @@ export default function TransactionHistory() {
   return (
     <div className="text-white p-4">
       <h2 className="text-2xl font-bold text-center mb-4">Transaction History</h2>
+
+      {error && <p className="text-red-500 text-sm text-center mb-4">{error}</p>}
 
       <div className="max-h-[400px] overflow-y-auto rounded shadow-inner">
         <table className="w-full text-sm text-left">
@@ -79,11 +74,13 @@ export default function TransactionHistory() {
         >
           Previous
         </button>
-        <span className="text-white">Page {page}</span>
+        <span className="text-white">
+          Page {page} of {totalPages}
+        </span>
         <button
           className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-          onClick={() => setPage((p) => p + 1)}
-          disabled={!hasMore}
+          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          disabled={page >= totalPages}
         >
           Next
         </button>

@@ -1,12 +1,22 @@
 # File: backend/webhook.py
+import logging
 
 import requests
 
-WEBHOOK_URL = "http://localhost:9000/alert"  # Altere para o seu destino real
+from backend.config import WEBHOOK_ALERTS_ENABLED, WEBHOOK_URL
 
-def send_webhook(payload: dict):
+logger = logging.getLogger("safetx.webhook")
+
+
+def send_webhook(payload: dict) -> bool:
+    if not WEBHOOK_ALERTS_ENABLED:
+        logger.info("Webhook desabilitado (WEBHOOK_ALERTS_ENABLED=false).")
+        return False
+
     try:
         response = requests.post(WEBHOOK_URL, json=payload, timeout=5)
-        print(f"[Webhook] Status: {response.status_code}")
-    except Exception as e:
-        print(f"[Webhook] Failed to send: {e}")
+        logger.info("Webhook enviado. Status: %s", response.status_code)
+        return response.ok
+    except requests.RequestException:
+        logger.exception("Falha ao enviar webhook para %s", WEBHOOK_URL)
+        return False
