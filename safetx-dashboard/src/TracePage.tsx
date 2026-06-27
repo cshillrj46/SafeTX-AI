@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getTrace, type TraceDetail } from "./api";
 import TraceCaseForm from "./TraceCaseForm";
 import TraceGraph from "./TraceGraph";
+import TraceTransactionTable from "./TraceTransactionTable";
 
 const POLL_INTERVAL_MS = 2500;
 
@@ -99,6 +100,7 @@ export default function TracePage() {
             <>
               <Legend />
               <TraceGraph trace={trace} />
+              <TraceTransactionTable trace={trace} />
             </>
           )}
 
