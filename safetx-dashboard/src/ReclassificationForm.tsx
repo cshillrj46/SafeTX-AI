@@ -1,44 +1,32 @@
 // File: src/ReclassificationForm.tsx
 import { useState } from "react";
+import { ApiError, reclassify, type RiskLevel } from "./api";
 
 export default function ReclassificationForm() {
   const [txId, setTxId] = useState("");
-  const [newRisk, setNewRisk] = useState("safe");
+  const [newRisk, setNewRisk] = useState<RiskLevel>("safe");
   const [reason, setReason] = useState("");
-  const [reclassifiedBy, setReclassifiedBy] = useState("");
   const [status, setStatus] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     setStatus(null);
-    if (!txId || !reason || !reclassifiedBy) {
+    if (!txId || !reason) {
       setStatus("Please fill in all fields.");
       return;
     }
 
     try {
-      const response = await fetch(`http://localhost:8000/reclassify/${txId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          new_risk: newRisk,
-          reason,
-          reclassified_by: reclassifiedBy,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to reclassify transaction");
-      }
+      // "reclassified_by" não é mais enviado pelo cliente — o backend
+      // identifica o autor pelo usuário autenticado no token JWT. Antes,
+      // qualquer pessoa podia digitar qualquer nome nesse campo.
+      await reclassify(Number(txId), { new_risk: newRisk, reason });
 
       setStatus("Transaction successfully reclassified.");
       setTxId("");
       setNewRisk("safe");
       setReason("");
-      setReclassifiedBy("");
-    } catch (err: any) {
-      setStatus(err.message);
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : "Failed to reclassify transaction");
     }
   };
 
@@ -54,7 +42,7 @@ export default function ReclassificationForm() {
       />
       <select
         value={newRisk}
-        onChange={(e) => setNewRisk(e.target.value)}
+        onChange={(e) => setNewRisk(e.target.value as RiskLevel)}
         className="w-full p-2 mb-2 rounded bg-gray-800 border border-gray-600"
       >
         <option value="safe">Safe</option>
@@ -66,13 +54,6 @@ export default function ReclassificationForm() {
         placeholder="Reason"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-        className="w-full p-2 mb-2 rounded bg-gray-800 border border-gray-600"
-      />
-      <input
-        type="text"
-        placeholder="Your Name"
-        value={reclassifiedBy}
-        onChange={(e) => setReclassifiedBy(e.target.value)}
         className="w-full p-2 mb-4 rounded bg-gray-800 border border-gray-600"
       />
       <button
