@@ -49,23 +49,44 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate    # Windows
 # source .venv/bin/activate   # Linux/Mac
+cd ..
 pip install -r requirements.txt
-uvicorn main:app --reload
+```
+
+Configure as variáveis de ambiente antes de subir a API:
+```bash
+cp .env.example .env
+# edite o .env com suas próprias credenciais (Gmail App Password, SECRET_KEY, etc.)
+```
+
+Suba a API:
+```bash
+uvicorn backend.main:app --reload
 ```
 
 ### 3. Frontend Setup
 ```bash
-cd ../frontend
+cd safetx-dashboard
 npm install
-npm start
+npm run dev
 ```
 
 ---
 
 ## 📈 Usage
 
-- Visit `http://localhost:3000` to access the frontend
+- Visit `http://localhost:5173` to access the frontend
 - Backend runs at `http://localhost:8000`
+- All API endpoints (except `/register` and `/token`) require a JWT Bearer token.
+  Register a user, then log in to get a token:
+  ```bash
+  curl -X POST http://localhost:8000/register \
+    -H "Content-Type: application/json" \
+    -d '{"username":"alice","email":"alice@example.com","password":"senha-forte"}'
+
+  curl -X POST http://localhost:8000/token \
+    -d "username=alice&password=senha-forte"
+  ```
 - You can submit transactions manually or connect a Web3 wallet integration
 - Reclassification and alerts are automatically logged
 
@@ -90,19 +111,30 @@ Model files are saved in `backend/`:
 SafeTX-AI/
 ├── backend/
 │   ├── main.py
+│   ├── auth.py
+│   ├── config.py
 │   ├── train_model.py
 │   ├── database.py
 │   ├── ai_model.py
 │   └── ...
-├── frontend/
+├── safetx-dashboard/      # frontend (React + Vite + TypeScript)
 │   ├── src/
 │   ├── public/
 │   └── ...
-├── assets/
-│   └── banner.png
+├── blockchain/            # contratos Solidity (Hardhat)
+├── tests/                 # testes automatizados (pytest)
+├── alembic/               # migrações do banco de dados
+├── .env.example
+├── requirements.txt
 ├── transactions.csv
 ├── README.md
 └── LICENSE
+```
+
+## 🧪 Running automated tests
+```bash
+pip install -r requirements.txt
+pytest
 ```
 
 ---

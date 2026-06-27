@@ -1,0 +1,21 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+pydantic[email]==2.10.4
+python-dotenv==1.0.1
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.20
+requests==2.32.3
+alembic==1.14.0
+
+# AI / treinamento do modelo (train_model.py)
+pandas==2.2.3
+scikit-learn==1.6.1
+imbalanced-learn==0.12.4
+joblib==1.4.2
+
+# Testes
+pytest==8.3.4
+httpx==0.28.1

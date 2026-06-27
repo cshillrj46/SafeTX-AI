@@ -1,5 +1,6 @@
 // File: src/TransactionAnalyzer.tsx
 import { useState } from "react";
+import { ApiError, analyzeTransaction } from "./api";
 
 export default function TransactionAnalyzer() {
   const [sender, setSender] = useState("");
@@ -15,26 +16,17 @@ export default function TransactionAnalyzer() {
     setRisk(null);
 
     try {
-      const response = await fetch("http://localhost:8000/analyze", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sender,
-          recipient,
-          amount_eth: parseFloat(amount),
-        }),
+      // O backend retorna o risco como string simples (ex: "high-risk"),
+      // não como { risk: "..." } — antes este bug fazia o resultado nunca
+      // aparecer na tela.
+      const result = await analyzeTransaction({
+        sender,
+        recipient,
+        amount_eth: parseFloat(amount),
       });
-
-      if (!response.ok) {
-        throw new Error("Failed to analyze transaction");
-      }
-
-      const result = await response.json();
-      setRisk(result.risk); // espera que o backend retorne { "risk": "suspicious" }, por exemplo
-    } catch (err: any) {
-      setError(err.message);
+      setRisk(result);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to analyze transaction");
     } finally {
       setLoading(false);
     }
@@ -67,8 +59,8 @@ export default function TransactionAnalyzer() {
         />
         <button
           onClick={handleAnalyze}
-          className="w-full p-2 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold"
-          disabled={loading}
+          className="w-full p-2 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-50"
+          disabled={loading || !sender || !recipient || !amount}
         >
           {loading ? "Analyzing..." : "Analyze Transaction"}
         </button>
