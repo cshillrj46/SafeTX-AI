@@ -153,6 +153,7 @@ export interface TraceGraphNode {
   address: string;
   depth: number;
   is_target: boolean;
+  is_likely_hub: boolean;
   label: string | null;
   is_sanctioned: boolean;
   is_known_exchange: boolean;
@@ -171,6 +172,7 @@ export interface TraceGraphEdge {
 export interface TraceDetail {
   job_id: number;
   status: TraceStatus;
+  was_truncated: boolean;
   target_address: string;
   chain: string;
   max_hops: number;

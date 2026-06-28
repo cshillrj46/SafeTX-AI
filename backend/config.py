@@ -101,3 +101,13 @@ TRACE_MIN_VALUE_ETH = float(os.getenv("TRACE_MIN_VALUE_ETH", "0.001"))
 TRACE_MAX_HOPS_ALLOWED = int(os.getenv("TRACE_MAX_HOPS_ALLOWED", "4"))
 TRACE_MAX_NODES = int(os.getenv("TRACE_MAX_NODES", "150"))
 TRACE_MAX_TXS_PER_ADDRESS = int(os.getenv("TRACE_MAX_TXS_PER_ADDRESS", "1000"))
+
+# Detecção comportamental de hub: se um endereço tem mais saídas relevantes
+# do que isso, tratamos como infraestrutura compartilhada (DEX, bridge,
+# relayer) e PARAMOS de expandir a partir dele — continuamos registrando a
+# aresta que levou até ali (mostra que o dinheiro passou por lá), mas não
+# decompomos "todo mundo que já usou aquele contrato". Validado contra caso
+# real: um endereço comum, em 2 hops, frequentemente toca um contrato de
+# bridge/relay usado por milhares de pessoas, e sem essa guarda o grafo
+# explode mesmo quando o endereço investigado é individual.
+TRACE_HUB_FANOUT_THRESHOLD = int(os.getenv("TRACE_HUB_FANOUT_THRESHOLD", "40"))

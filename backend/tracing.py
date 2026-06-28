@@ -15,7 +15,11 @@ chamado literalmente "ETH" com saldo falso gigante em outro endereço).
 
 Profundidade e volume de transações por endereço são limitados por
 configuração para não deixar a investigação rodar indefinidamente nem
-estourar o limite de chamadas da API gratuita.
+estourar o limite de chamadas da API gratuita. Endereços com fan-out de
+saída muito alto (validado contra dado real: contratos de bridge/relay
+compartilhados por milhares de usuários) são tratados como hub e não são
+expandidos — a aresta que leva até eles é registrada, mas o motor não
+decompõe quem mais usou aquele contrato.
 
 Rotulagem (sanções, exchanges conhecidas) e a narrativa em PT-BR via LLM
 são fases seguintes, ainda não implementadas aqui.
@@ -28,6 +32,7 @@ from backend import etherscan_client
 from backend.config import (
     STABLECOIN_CONTRACTS,
     SUPPORTED_CHAINS,
+    TRACE_HUB_FANOUT_THRESHOLD,
     TRACE_MAX_NODES,
     TRACE_MAX_TXS_PER_ADDRESS,
     TRACE_MIN_VALUE_ETH,
@@ -149,10 +154,13 @@ def run_trace(job_id: int) -> None:
         visited = {target}
         nodes_created = 1
 
-        db.add(TraceNode(job_id=job_id, address=target, depth=0, is_target=True))
+        target_node = TraceNode(job_id=job_id, address=target, depth=0, is_target=True)
+        db.add(target_node)
         db.commit()
+        nodes_by_address = {target: target_node}
 
         queue: deque[tuple[str, int]] = deque([(target, 0)])
+        truncated = False
 
         while queue:
             address, depth = queue.popleft()
@@ -160,10 +168,24 @@ def run_trace(job_id: int) -> None:
                 continue
             if nodes_created >= TRACE_MAX_NODES:
                 logger.warning("Job %s atingiu TRACE_MAX_NODES (%d), parando expansão.", job_id, TRACE_MAX_NODES)
+                truncated = True
                 break
 
             edges = _collect_native_edges(address, chain_id, job.since_timestamp)
             edges += _collect_stablecoin_edges(address, chain_id, job.chain, job.since_timestamp)
+
+            is_hub = len(edges) > TRACE_HUB_FANOUT_THRESHOLD
+            if is_hub:
+                node = nodes_by_address.get(address)
+                if node:
+                    node.is_likely_hub = True
+                logger.info(
+                    "Endereço %s tratado como hub (%d saídas relevantes, limiar=%d) — "
+                    "registrando arestas, mas não expandindo a partir dele.",
+                    address,
+                    len(edges),
+                    TRACE_HUB_FANOUT_THRESHOLD,
+                )
 
             for edge in edges:
                 db.add(
@@ -179,15 +201,27 @@ def run_trace(job_id: int) -> None:
                     )
                 )
 
-                if edge["to"] not in visited and nodes_created < TRACE_MAX_NODES:
-                    visited.add(edge["to"])
-                    nodes_created += 1
-                    db.add(TraceNode(job_id=job_id, address=edge["to"], depth=depth + 1, is_target=False))
-                    queue.append((edge["to"], depth + 1))
+                if is_hub:
+                    continue  # aresta registrada, mas não decompõe o hub
+
+                if edge["to"] not in visited:
+                    if nodes_created < TRACE_MAX_NODES:
+                        visited.add(edge["to"])
+                        nodes_created += 1
+                        new_node = TraceNode(job_id=job_id, address=edge["to"], depth=depth + 1, is_target=False)
+                        db.add(new_node)
+                        nodes_by_address[edge["to"]] = new_node
+                        queue.append((edge["to"], depth + 1))
+                    else:
+                        # Teto de nós atingido no meio da expansão: a aresta foi
+                        # gravada (mostra que a transação existe), mas o destino
+                        # não foi enfileirado pra continuar — o grafo é parcial.
+                        truncated = True
 
             db.commit()
 
         job.status = "completed"
+        job.was_truncated = truncated
         job.completed_at = datetime.now(timezone.utc)
         db.commit()
         logger.info("Trace job %s concluído: %d nós, %d hops.", job_id, nodes_created, job.max_hops)
@@ -202,3 +236,4 @@ def run_trace(job_id: int) -> None:
         logger.exception("Trace job %s falhou.", job_id)
     finally:
         db.close()
+        

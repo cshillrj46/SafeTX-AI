@@ -55,6 +55,7 @@ class TraceJob(Base):
     case_reference = Column(String, nullable=True)
     since_timestamp = Column(DateTime, nullable=True)
     status = Column(String, nullable=False, default="pending")  # pending|running|completed|failed
+    was_truncated = Column(Boolean, nullable=False, default=False)
     error_message = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
@@ -68,6 +69,10 @@ class TraceNode(Base):
     address = Column(String, index=True, nullable=False)
     depth = Column(Integer, nullable=False, default=0)
     is_target = Column(Boolean, nullable=False, default=False)
+    # Heurística comportamental (não depende de lista externa): marcado
+    # quando o endereço tem fan-out de saída acima de TRACE_HUB_FANOUT_THRESHOLD
+    # — tratado como infraestrutura compartilhada, expansão interrompida ali.
+    is_likely_hub = Column(Boolean, nullable=False, default=False)
     # Campos de enriquecimento — ainda não preenchidos na Fase 1 (BFS puro),
     # reservados para a fase de cruzamento com sanctions list / exchanges.
     label = Column(String, nullable=True)
@@ -108,3 +113,4 @@ def get_db():
         yield db
     finally:
         db.close()
+        

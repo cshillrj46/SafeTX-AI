@@ -22,6 +22,7 @@ function nodeColor(node: TraceDetail["nodes"][number]): string {
   if (node.is_sanctioned) return "#E24B4A"; // sinalizado
   if (node.is_known_exchange) return "#378ADD"; // exchange conhecida
   if (node.is_target) return "#D85A30"; // endereço investigado
+  if (node.is_likely_hub) return "#A855F7"; // hub de alto fan-out (não expandido)
   return "#4B5563"; // sem rótulo (gray-600)
 }
 
@@ -55,6 +56,7 @@ export default function TraceGraph({ trace }: TraceGraphProps) {
                 {n.is_target && <div className="text-[10px] opacity-80">investigado</div>}
                 {n.is_sanctioned && <div className="text-[10px] opacity-80">sancionado</div>}
                 {n.is_known_exchange && <div className="text-[10px] opacity-80">exchange</div>}
+                {n.is_likely_hub && <div className="text-[10px] opacity-80">hub (não expandido)</div>}
                 {n.label && <div className="text-[10px] opacity-80">{n.label}</div>}
               </div>
             ),
@@ -71,17 +73,20 @@ export default function TraceGraph({ trace }: TraceGraphProps) {
       });
     }
 
-    const flowEdges: Edge[] = trace.edges.map((e, i) => ({
-      id: `${e.tx_hash}-${i}`,
-      source: e.from,
-      target: e.to,
-      label: `${e.amount.toFixed(e.token_symbol ? 2 : 4)} ${e.token_symbol ?? "ETH"}`,
-      animated: true,
-      style: { stroke: "#6B7280" },
-      labelStyle: { fill: "#D1D5DB", fontSize: 11 },
-      labelBgStyle: { fill: "#111827" },
-      markerEnd: { type: MarkerType.ArrowClosed, color: "#6B7280" },
-    }));
+    const nodeIds = new Set(flowNodes.map((n) => n.id));
+    const flowEdges: Edge[] = trace.edges
+      .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
+      .map((e, i) => ({
+        id: `${e.tx_hash}-${i}`,
+        source: e.from,
+        target: e.to,
+        label: `${e.amount.toFixed(e.token_symbol ? 2 : 4)} ${e.token_symbol ?? "ETH"}`,
+        animated: true,
+        style: { stroke: "#6B7280" },
+        labelStyle: { fill: "#D1D5DB", fontSize: 11 },
+        labelBgStyle: { fill: "#111827" },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#6B7280" },
+      }));
 
     return { nodes: flowNodes, edges: flowEdges };
   }, [trace]);

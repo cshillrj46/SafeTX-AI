@@ -271,6 +271,7 @@ def get_trace(
     return {
         "job_id": job.id,
         "status": job.status,
+        "was_truncated": job.was_truncated,
         "target_address": job.target_address,
         "chain": job.chain,
         "max_hops": job.max_hops,
@@ -283,6 +284,7 @@ def get_trace(
                 "address": n.address,
                 "depth": n.depth,
                 "is_target": n.is_target,
+                "is_likely_hub": n.is_likely_hub,
                 "label": n.label,
                 "is_sanctioned": n.is_sanctioned,
                 "is_known_exchange": n.is_known_exchange,

@@ -83,6 +83,16 @@ export default function TracePage() {
             <StatCard label="Entidades sinalizadas" value={String(trace.flagged_entities)} />
           </div>
 
+          {trace.was_truncated && (
+            <p className="text-yellow-400 text-sm mb-4 border border-yellow-700 bg-yellow-950/40 rounded p-2">
+              ⚠️ Resultado parcial: o rastreamento atingiu o limite de segurança de nós
+              investigados antes de esgotar toda a movimentação. Isso costuma acontecer quando
+              o endereço alvo é uma infraestrutura muito usada (ex: pool de mixer, exchange),
+              não um endereço individual. Considere reduzir a profundidade (hops) ou investigar
+              a partir de um endereço mais específico.
+            </p>
+          )}
+
           {trace.status === "failed" && (
             <p className="text-red-500 text-sm mb-4">
               Falha no rastreamento: {trace.error_message ?? "erro desconhecido"}
@@ -135,6 +145,7 @@ function Legend() {
     ["#4B5563", "Sem rótulo público"],
     ["#378ADD", "Exchange conhecida"],
     ["#E24B4A", "Sinalizado (sanção/golpe)"],
+    ["#A855F7", "Hub de alto volume (não expandido)"],
   ];
   return (
     <div className="flex flex-wrap gap-4 mb-2 text-xs text-gray-400">
